@@ -22,6 +22,13 @@ format and runs forward (activation) passes. No training functionality is provid
 
 ## Quick start
 
+### Reference crate
+
+```toml
+[dependencies]
+sharpneat-runner-rs = "0.1"
+```
+
 ### Load and run a `.net` file
 
 ```rust
