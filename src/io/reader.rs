@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Parser for SharpNeat's `.net` file format.
 //!
 //! The format is a sequence of blank-line-separated sections:

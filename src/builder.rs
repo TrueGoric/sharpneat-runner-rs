@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! High-level convenience: build a runnable [`Net`] from a [`NetFileModel`](crate::io::NetFileModel).
 //!
 //! This module bridges the parsed file format and the runtime types. It maps the model's

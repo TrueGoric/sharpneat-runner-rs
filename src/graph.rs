@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Directed graph representations used to build neural networks.
 //!
 //! A SharpNeat network is a weighted directed graph. Node IDs are contiguous zero-based indexes

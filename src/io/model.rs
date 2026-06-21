@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! In-memory representation of a `.net` file and the error type returned by the reader/writer.
 
 use std::fmt;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Acyclic graph construction: depth analysis and layer scheduling.
 //!
 //! An acyclic SharpNeat network is activated one layer at a time. The layer (depth) of a node is

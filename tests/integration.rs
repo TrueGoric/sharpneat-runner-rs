@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! End-to-end tests that load the SharpNeat `.net` fixture files, exercise the full
 //! parse → build → activate pipeline, and verify file IO round-trips.
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Cyclic neural network activation.
 //!
 //! A cyclic network has no natural layer ordering, so activation is performed as a fixed number of

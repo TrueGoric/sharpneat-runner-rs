@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Micro-benchmarks for the activation functions.
 //!
 //! Zero-dependency harness: each scenario is run in a loop for a fixed wall-clock budget and the

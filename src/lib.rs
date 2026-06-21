@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Inference-only runtime for neural networks trained by [SharpNeat](https://github.com/colgreen/sharpneat).
 //!
 //! SharpNeat is a C# genetic algorithm library that evolves neural network topologies. This crate

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Acyclic neural network activation.
 //!
 //! The network is activated one layer at a time. For each layer the connections whose *source*

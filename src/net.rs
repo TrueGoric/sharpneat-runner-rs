@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Neural network runtime: the [`NeuralNet`] trait and its two implementations.
 //!
 //! - [`NeuralNetAcyclic`] activates a depth-scheduled acyclic graph in a single forward sweep.

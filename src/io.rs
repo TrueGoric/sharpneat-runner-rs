@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Loading and saving of SharpNeat `.net` files.
 //!
 //! The text-based parser in [`reader`] and serialiser in [`writer`] operate on strings. The

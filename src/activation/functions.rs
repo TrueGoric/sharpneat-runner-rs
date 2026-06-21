@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Implementations of the standard SharpNeat activation functions.
 //!
 //! Each function is a small module exposing a `scalar(f64) -> f64` inner and a `vec(Vf) -> Vf` inner,

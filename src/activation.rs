@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Neuron activation functions for SharpNeat networks.
 //!
 //! The primary abstraction is the [`Activation`] trait. Each SharpNeat activation function is a

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Micro-benchmarks for acyclic and cyclic network activation.
 //!
 //! Builds networks of varying size from synthetic connection lists and times

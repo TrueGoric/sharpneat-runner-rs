@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! Serialiser for SharpNeat's `.net` file format.
 //!
 //! Produces output that round-trips through [`super::reader::parse`]. The layout, section headers

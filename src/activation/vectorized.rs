@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Marcin Jędrasik
+// SPDX-License-Identifier: MIT
+
 //! SIMD vectorisation helpers shared by the activation functions.
 //!
 //! All activation functions expose a scalar inner form and a vector inner form. The drivers in this
