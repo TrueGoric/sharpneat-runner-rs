@@ -1,0 +1,22 @@
+[package]
+name = "sharpneat-runner-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Inference-only runtime for cyclic and acyclic neural networks trained by SharpNeat."
+license = "MIT"
+repository = "https://github.com/truegoric/sharpneat-runner-rs"
+
+[lib]
+bench = false
+
+[[bench]]
+name = "activation_bench"
+harness = false
+
+[[bench]]
+name = "neuralnet_bench"
+harness = false
+
+[dependencies]
+
+[dev-dependencies]
