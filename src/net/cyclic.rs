@@ -11,23 +11,26 @@
 //! occupy `[input_count, input_count + output_count)` within the post-activation slice, so reading
 //! [`NeuralNet::outputs`] immediately after [`NeuralNet::activate`] returns their relaxed state.
 
-use crate::activation::ActivationFn;
+use crate::activation::Activation;
 use crate::activation::LANES;
 use crate::graph::{ConnectionIds, WeightedDirectedGraph};
 use crate::net::NeuralNet;
 use std::simd::Simd;
 
-/// A cyclic SharpNeat neural network.
+/// A cyclic SharpNeat neural network, generic over the neuron activation function.
 ///
 /// Holds two parallel signal arrays — pre-activation and post-activation — of length
 /// `total_node_count`. Inputs occupy the first `input_count` slots of the post-activation array;
-/// outputs occupy the next `output_count` slots.
+/// outputs occupy the next `output_count` slots. When `A` is a concrete unit struct (e.g.
+/// [`Logistic`](crate::activation::Logistic)) the activation hot path is monomorphised and
+/// inlined; when `A` is [`ActivationFn`](crate::activation::ActivationFn) the function is selected
+/// at runtime via a `match`.
 #[derive(Debug)]
-pub struct NeuralNetCyclic {
+pub struct NeuralNetCyclic<A: Activation> {
     src_ids: Vec<usize>,
     tgt_ids: Vec<usize>,
     weights: Vec<f64>,
-    activation_fn: ActivationFn,
+    activation_fn: A,
     /// `pre` then `post`, each of length `total_node_count`.
     activations: Vec<f64>,
     total_node_count: usize,
@@ -36,14 +39,14 @@ pub struct NeuralNetCyclic {
     cycles_per_activation: usize,
 }
 
-impl NeuralNetCyclic {
+impl<A: Activation> NeuralNetCyclic<A> {
     /// Build a runnable cyclic network.
     ///
     /// `cycles_per_activation` is the number of relaxation timesteps performed per
     /// [`NeuralNet::activate`] call; it must be at least 1.
     pub fn new(
         graph: WeightedDirectedGraph,
-        activation_fn: ActivationFn,
+        activation_fn: A,
         cycles_per_activation: usize,
     ) -> Self {
         assert!(
@@ -70,9 +73,14 @@ impl NeuralNetCyclic {
     pub fn cycles_per_activation(&self) -> usize {
         self.cycles_per_activation
     }
+
+    /// The activation function applied at every non-input neuron.
+    pub fn activation_fn(&self) -> &A {
+        &self.activation_fn
+    }
 }
 
-impl NeuralNet for NeuralNetCyclic {
+impl<A: Activation> NeuralNet for NeuralNetCyclic<A> {
     fn input_count(&self) -> usize {
         self.input_count
     }
@@ -165,11 +173,12 @@ impl NeuralNet for NeuralNetCyclic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activation::{Activation, ActivationFn, Logistic, ReLU};
     use crate::graph::WeightedDirectedConnection;
 
     /// A small cyclic graph with a feedback loop, matching SharpNeat's `example3.net`.
     /// Inputs {0,1,2}, outputs {3,4}, hidden {5,6,7}.
-    fn build(activation_fn: ActivationFn, cycles: usize) -> NeuralNetCyclic {
+    fn build<A: Activation>(activation_fn: A, cycles: usize) -> NeuralNetCyclic<A> {
         let conns = vec![
             WeightedDirectedConnection {
                 src_id: 0,
@@ -223,7 +232,7 @@ mod tests {
 
     /// A feedforward-only cyclic graph (no feedback) where a single cycle fully propagates signals
     /// to the outputs. Inputs {0,1,2}, outputs {3,4}.
-    fn feedforward(activation_fn: ActivationFn, cycles: usize) -> NeuralNetCyclic {
+    fn feedforward<A: Activation>(activation_fn: A, cycles: usize) -> NeuralNetCyclic<A> {
         let conns = vec![
             WeightedDirectedConnection {
                 src_id: 0,
@@ -335,5 +344,38 @@ mod tests {
             (oa[0] - ob[0]).abs() > 1e-6 || (oa[1] - ob[1]).abs() > 1e-6,
             "cycles should change output: {oa:?} vs {ob:?}"
         );
+    }
+
+    #[test]
+    fn concrete_activation_type_matches_enum_dispatch() {
+        let inputs = [1.0, 2.0, 3.0];
+
+        let mut enum_net = feedforward(ActivationFn::ReLU, 1);
+        enum_net.inputs_mut().copy_from_slice(&inputs);
+        enum_net.activate();
+
+        let mut concrete_net = feedforward(ReLU, 1);
+        concrete_net.inputs_mut().copy_from_slice(&inputs);
+        concrete_net.activate();
+
+        assert_eq!(enum_net.outputs(), concrete_net.outputs());
+    }
+
+    #[test]
+    fn concrete_logistic_type_works() {
+        let mut net = feedforward(Logistic, 1);
+        net.inputs_mut().copy_from_slice(&[1.0, 2.0, 3.0]);
+        net.activate();
+        // pre[3] = 2; pre[4] = 21. Logistic -> (1/(1+e^-2), 1/(1+e^-21)).
+        let expected = [1.0 / (1.0 + f64::exp(-2.0)), 1.0 / (1.0 + f64::exp(-21.0))];
+        for (i, (g, e)) in net.outputs().iter().zip(expected).enumerate() {
+            assert!((g - e).abs() < 1e-9, "output[{i}] = {g}, expected {e}");
+        }
+    }
+
+    #[test]
+    fn activation_fn_accessor_returns_the_function() {
+        let net = feedforward(ReLU, 1);
+        assert_eq!(net.activation_fn().code(), "ReLU");
     }
 }

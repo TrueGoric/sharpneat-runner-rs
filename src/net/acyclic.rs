@@ -13,25 +13,28 @@
 //! vectors and multiplied together, then the four results are scattered back into the targets'
 //! accumulators one at a time (the targets are generally not contiguous).
 
-use crate::activation::ActivationFn;
+use crate::activation::Activation;
 use crate::activation::LANES;
 use crate::graph::acyclic::{LayerInfo, WeightedDirectedGraphAcyclic};
 use crate::net::NeuralNet;
 use std::simd::Simd;
 
-/// An acyclic SharpNeat neural network.
+/// An acyclic SharpNeat neural network, generic over the neuron activation function.
 ///
-/// Construct with [`NeuralNetAcyclic::new`] from a [`WeightedDirectedGraphAcyclic`] and an
-/// [`ActivationFn`]. Inputs are written into the first `input_count` slots of the activation
-/// buffer via [`NeuralNet::inputs_mut`]; after [`NeuralNet::activate`] the outputs are available
-/// in a separate contiguous slice via [`NeuralNet::outputs`].
+/// Construct with [`NeuralNetAcyclic::new`] from a [`WeightedDirectedGraphAcyclic`] and any
+/// [`Activation`] function. When `A` is a concrete unit struct (e.g. [`Logistic`](crate::activation::Logistic))
+/// the activation hot path is monomorphised and inlined; when `A` is
+/// [`ActivationFn`](crate::activation::ActivationFn) the function is selected at runtime via a
+/// `match`. Inputs are written into the first `input_count` slots of the activation buffer via
+/// [`NeuralNet::inputs_mut`]; after [`NeuralNet::activate`] the outputs are available in a
+/// separate contiguous slice via [`NeuralNet::outputs`].
 #[derive(Debug)]
-pub struct NeuralNetAcyclic {
+pub struct NeuralNetAcyclic<A: Activation> {
     src_ids: Vec<usize>,
     tgt_ids: Vec<usize>,
     weights: Vec<f64>,
     layer_info: Vec<LayerInfo>,
-    activation_fn: ActivationFn,
+    activation_fn: A,
     /// Holds `total_node_count` activation values followed by `output_count` output slots.
     working_arr: Vec<f64>,
     total_node_count: usize,
@@ -42,9 +45,9 @@ pub struct NeuralNetAcyclic {
     output_node_idx: Vec<usize>,
 }
 
-impl NeuralNetAcyclic {
+impl<A: Activation> NeuralNetAcyclic<A> {
     /// Build a runnable acyclic network from a weighted acyclic graph and an activation function.
-    pub fn new(graph: WeightedDirectedGraphAcyclic, activation_fn: ActivationFn) -> Self {
+    pub fn new(graph: WeightedDirectedGraphAcyclic, activation_fn: A) -> Self {
         let digraph = graph.digraph;
         let total = digraph.total_node_count;
         let output_count = digraph.output_count;
@@ -66,9 +69,14 @@ impl NeuralNetAcyclic {
     pub fn layer_count(&self) -> usize {
         self.layer_info.len()
     }
+
+    /// The activation function applied at every non-input neuron.
+    pub fn activation_fn(&self) -> &A {
+        &self.activation_fn
+    }
 }
 
-impl NeuralNet for NeuralNetAcyclic {
+impl<A: Activation> NeuralNet for NeuralNetAcyclic<A> {
     fn input_count(&self) -> usize {
         self.input_count
     }
@@ -166,13 +174,14 @@ impl NeuralNet for NeuralNetAcyclic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activation::{Activation, ActivationFn, Logistic, ReLU};
     use crate::graph::WeightedDirectedConnection;
     use crate::graph::WeightedDirectedGraph;
     use crate::graph::acyclic::build_weighted_directed_graph_acyclic;
 
     /// Build a small acyclic net: 3 inputs, 2 outputs, one hidden layer of 4 nodes.
     /// Topology from SharpNeat's `example1.net` (all sources are inputs, so a single hidden layer).
-    fn build(activation_fn: ActivationFn) -> NeuralNetAcyclic {
+    fn build<A: Activation>(activation_fn: A) -> NeuralNetAcyclic<A> {
         let conns = vec![
             WeightedDirectedConnection {
                 src_id: 0,
@@ -333,5 +342,44 @@ mod tests {
         net.reset(); // should be a no-op and not panic
         net.activate();
         assert_eq!(net.outputs().len(), 2);
+    }
+
+    #[test]
+    fn concrete_activation_type_matches_enum_dispatch() {
+        // The same network built with the concrete `ReLU` unit struct must produce identical
+        // outputs to the runtime-dispatched `ActivationFn::ReLU` variant.
+        let inputs = [1.0, 2.0, 3.0];
+
+        let mut enum_net = build(ActivationFn::ReLU);
+        enum_net.inputs_mut().copy_from_slice(&inputs);
+        enum_net.activate();
+
+        let mut concrete_net = build(ReLU);
+        concrete_net.inputs_mut().copy_from_slice(&inputs);
+        concrete_net.activate();
+
+        assert_eq!(enum_net.outputs(), concrete_net.outputs());
+    }
+
+    #[test]
+    fn concrete_logistic_type_works() {
+        let mut net = build(Logistic);
+        net.inputs_mut().copy_from_slice(&[1.0, 2.0, 3.0]);
+        net.activate();
+        let pre_3 = 1.0 * 0.3 + 2.0 * 1.3;
+        let pre_4 = 2.0 * 1.4 + 3.0 * 2.4;
+        let expected = [
+            1.0 / (1.0 + f64::exp(-pre_3)),
+            1.0 / (1.0 + f64::exp(-pre_4)),
+        ];
+        for (i, (g, e)) in net.outputs().iter().zip(expected).enumerate() {
+            assert!((g - e).abs() < 1e-9, "output[{i}] = {g}, expected {e}");
+        }
+    }
+
+    #[test]
+    fn activation_fn_accessor_returns_the_function() {
+        let net = build(ReLU);
+        assert_eq!(net.activation_fn().code(), "ReLU");
     }
 }

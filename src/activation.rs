@@ -1,9 +1,11 @@
 //! Neuron activation functions for SharpNeat networks.
 //!
-//! The [`ActivationFn`] enum has one variant per activation function code that can appear in a
-//! `.net` file. Dispatch is a `match`, so the compiler specialises each call site and there is no
-//! virtual dispatch overhead. Each variant routes to a small per-function module in
-//! [`functions`] that provides both an in-place and an out-of-place vectorised implementation.
+//! The primary abstraction is the [`Activation`] trait. Each SharpNeat activation function is a
+//! zero-sized unit struct that implements [`Activation`] (e.g. [`Logistic`], [`ReLU`], [`TanH`]),
+//! so neural nets generic over `A: Activation` monomorphise to a single specialised code path with
+//! no virtual dispatch. The [`ActivationFn`] enum also implements [`Activation`]; it is the
+//! runtime-dispatch adapter used when the function is chosen at runtime (e.g. from a `.net` file's
+//! function code string).
 //!
 //! The set of functions and their constants mirror the C# classes in
 //! `src/SharpNeat/NeuralNets/ActivationFunctions/` and its `Cppn` sub-namespace.
@@ -13,13 +15,45 @@ mod vectorized;
 
 use std::fmt;
 
+pub use functions::{
+    ArcSinH, ArcTan, Gaussian, LeakyReLU, LeakyReLUShifted, Logistic, LogisticSteep, MaxMinusOne,
+    NullFn, PolynomialApproximantSteep, QuadraticSigmoid, ReLU, SReLU, SReLUShifted, ScaledELU,
+    Sine, SoftSignSteep, TanH,
+};
 pub use vectorized::LANES;
 
-/// The activation function applied at every non-input neuron.
+/// A neuron activation function usable by a [`NeuralNet`](crate::net::NeuralNet).
 ///
-/// Variant names match the function codes written by SharpNeat's `NetFileWriter` (e.g. `"ReLU"`,
-/// `"Logistic"`, `"Sine"`), so that [`ActivationFn::from_code`] and [`ActivationFn::code`] are
-/// exact inverses.
+/// Implementations are zero-sized unit structs ([`Logistic`], [`ReLU`], …) so that a generic
+/// `NeuralNetAcyclic<A>` monomorphises to code that calls the function directly, with the SIMD
+/// inner loops inlined. The [`ActivationFn`] enum also implements this trait for runtime dispatch
+/// (e.g. when the function is read from a `.net` file at runtime).
+///
+/// The supertraits keep activation functions trivially storable, copyable and sendable: they are
+/// stateless values, so `Copy` + `Debug` + `Send + Sync + 'static` impose no real burden.
+pub trait Activation: Copy + fmt::Debug + Send + Sync + 'static {
+    /// The function code string used in `.net` files (e.g. `"ReLU"`).
+    fn code(&self) -> &'static str;
+
+    /// Apply the function to each element of `v` in place.
+    fn activate_inplace(&self, v: &mut [f64]);
+
+    /// Apply the function reading from `src` and writing to `dst`.
+    ///
+    /// `src` and `dst` must have equal length. This is the form used by the cyclic network, which
+    /// keeps pre-activation and post-activation signals in separate arrays.
+    fn activate_into(&self, src: &[f64], dst: &mut [f64]);
+}
+
+/// Runtime-dispatched activation function: one variant per SharpNeat function code.
+///
+/// Implements [`Activation`] by `match`-ing on the variant, so it can be used anywhere a generic
+/// `A: Activation` is expected. Use this when the function is not known until runtime (e.g. it is
+/// read from a `.net` file). When the function is known at compile time, prefer the concrete unit
+/// structs ([`Logistic`], [`ReLU`], …) for a fully monomorphised, inlinable code path.
+///
+/// Variant names match the function codes written by SharpNeat's `NetFileWriter`, so
+/// [`ActivationFn::from_code`] and [`Activation::code`] are exact inverses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActivationFn {
     /// Inverse hyperbolic sine, scaled to roughly the [-1, 1] range.
@@ -88,9 +122,10 @@ impl ActivationFn {
             _ => return None,
         })
     }
+}
 
-    /// The inverse of [`from_code`]: the exact string written to a `.net` file.
-    pub fn code(self) -> &'static str {
+impl Activation for ActivationFn {
+    fn code(&self) -> &'static str {
         match self {
             Self::ArcSinH => "ArcSinH",
             Self::ArcTan => "ArcTan",
@@ -113,9 +148,8 @@ impl ActivationFn {
         }
     }
 
-    /// Apply the function to each element of `v` in place.
     #[inline]
-    pub fn activate_inplace(self, v: &mut [f64]) {
+    fn activate_inplace(&self, v: &mut [f64]) {
         match self {
             Self::ArcSinH => functions::arcsinh::apply_inplace(v),
             Self::ArcTan => functions::arctan::apply_inplace(v),
@@ -140,12 +174,8 @@ impl ActivationFn {
         }
     }
 
-    /// Apply the function reading from `src` and writing to `dst`.
-    ///
-    /// `src` and `dst` must have equal length. This is the form used by the cyclic network, which
-    /// keeps pre-activation and post-activation signals in separate arrays.
     #[inline]
-    pub fn activate_into(self, src: &[f64], dst: &mut [f64]) {
+    fn activate_into(&self, src: &[f64], dst: &mut [f64]) {
         match self {
             Self::ArcSinH => functions::arcsinh::apply_into(src, dst),
             Self::ArcTan => functions::arctan::apply_into(src, dst),

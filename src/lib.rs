@@ -10,12 +10,16 @@
 //!   topology (see [`net::NeuralNetAcyclic`]).
 //! - **Cyclic networks** — activated by a fixed number of relaxation timesteps per call (see
 //!   [`net::NeuralNetCyclic`]).
-//! - **Activation functions** — the standard SharpNeat neuron activation functions, with SIMD
-//!   vectorised hot paths via `portable_simd` (see [`activation::ActivationFn`]).
+//! - **Activation functions** — the standard SharpNeat neuron activation functions, exposed as a
+//!   trait ([`Activation`]) with one zero-sized unit struct per function ([`Logistic`], [`ReLU`],
+//!   …) plus an [`ActivationFn`] enum for runtime dispatch. SIMD vectorised hot paths via
+//!   `portable_simd` (see [`activation`]).
 //! - **Net file IO** — parsing and writing the human readable `.net` format produced by SharpNeat's
 //!   `NetFile.Load` / `NetFile.Save` (see [`io::NetFile`]).
 //!
 //! # Quick start
+//!
+//! Load a `.net` file (runtime-dispatched activation function):
 //!
 //! ```
 //! use sharpneat_runner_rs::{Net, NeuralNet, io::NetFile};
@@ -33,6 +37,30 @@
 //! # }
 //! ```
 //!
+//! Or construct a network with a concrete, monomorphised activation function:
+//!
+//! ```
+//! use sharpneat_runner_rs::{
+//!     Activation, Logistic, NeuralNet, NeuralNetAcyclic,
+//!     graph::{WeightedDirectedConnection, WeightedDirectedGraph},
+//!     graph::acyclic::build_weighted_directed_graph_acyclic,
+//! };
+//!
+//! let conns = vec![
+//!     WeightedDirectedConnection { src_id: 0, tgt_id: 2, weight: 0.5 },
+//!     WeightedDirectedConnection { src_id: 1, tgt_id: 2, weight: -0.5 },
+//!     WeightedDirectedConnection { src_id: 2, tgt_id: 3, weight: 1.0 },
+//! ];
+//! let graph = build_weighted_directed_graph_acyclic(
+//!     WeightedDirectedGraph::build(conns, 2, 1),
+//! );
+//! let mut net = NeuralNetAcyclic::new(graph, Logistic);
+//! net.inputs_mut().copy_from_slice(&[1.0, 1.0]);
+//! net.activate();
+//! assert_eq!(net.outputs().len(), 1);
+//! assert_eq!(Logistic.code(), "Logistic");
+//! ```
+//!
 //! # Design notes
 //!
 //! - All computations use `f64`, matching SharpNeat's double-precision net files.
@@ -48,7 +76,11 @@ pub mod graph;
 pub mod io;
 pub mod net;
 
-pub use activation::ActivationFn;
+pub use activation::{
+    Activation, ActivationFn, ArcSinH, ArcTan, Gaussian, LeakyReLU, LeakyReLUShifted, Logistic,
+    LogisticSteep, MaxMinusOne, NullFn, PolynomialApproximantSteep, QuadraticSigmoid, ReLU, SReLU,
+    SReLUShifted, ScaledELU, Sine, SoftSignSteep, TanH,
+};
 pub use builder::{Net, build_from_model};
 pub use io::{NetFile, NetFileError, NetFileModel};
 pub use net::{NeuralNet, NeuralNetAcyclic, NeuralNetCyclic};

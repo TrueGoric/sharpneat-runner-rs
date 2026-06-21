@@ -616,3 +616,115 @@ pub(super) mod gaussian {
         vec_apply_into(src, dst, vec, scalar);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit-struct activation function types.
+//
+// Each is a zero-sized marker that implements `Activation` by delegating to the matching inner
+// module above. Because they are ZSTs and the trait methods are `&self`, a generic
+// `NeuralNetAcyclic<A>` monomorphises to a direct call on the concrete inner functions, with the
+// SIMD loops fully inlinable.
+// ---------------------------------------------------------------------------
+
+use super::Activation;
+
+macro_rules! activation_type {
+    (
+        $(#[$meta:meta])*
+        $name:ident, $module:ident, $code:literal
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+        pub struct $name;
+
+        impl Activation for $name {
+            #[inline]
+            fn code(&self) -> &'static str {
+                $code
+            }
+
+            #[inline]
+            fn activate_inplace(&self, v: &mut [f64]) {
+                $module::apply_inplace(v);
+            }
+
+            #[inline]
+            fn activate_into(&self, src: &[f64], dst: &mut [f64]) {
+                $module::apply_into(src, dst);
+            }
+        }
+    };
+}
+
+activation_type! {
+    /// Inverse hyperbolic sine, scaled to roughly the [-1, 1] range.
+    ArcSinH, arcsinh, "ArcSinH"
+}
+activation_type! {
+    /// Inverse tangent.
+    ArcTan, arctan, "ArcTan"
+}
+activation_type! {
+    /// Leaky rectified linear unit (slope 0.001 for negative inputs).
+    LeakyReLU, leaky_relu, "LeakyReLU"
+}
+activation_type! {
+    /// Leaky ReLU shifted so that x=0 maps to y≈0.5.
+    LeakyReLUShifted, leaky_relu_shifted, "LeakyReLUShifted"
+}
+activation_type! {
+    /// The logistic sigmoid `1 / (1 + e^-x)`.
+    Logistic, logistic, "Logistic"
+}
+activation_type! {
+    /// The logistic sigmoid with a steepened slope (`-4.9 * x`).
+    LogisticSteep, logistic_steep, "LogisticSteep"
+}
+activation_type! {
+    /// `max(-1, x)`.
+    MaxMinusOne, max_minus_one, "MaxMinusOne"
+}
+activation_type! {
+    /// Always returns zero.
+    NullFn, null_fn, "NullFn"
+}
+activation_type! {
+    /// A close polynomial approximation of the steepened logistic sigmoid.
+    PolynomialApproximantSteep, polynomial_approximant_steep, "PolynomialApproximantSteep"
+}
+activation_type! {
+    /// A sigmoid formed by two sub-sections of `y = x^2` with leaky-relu tails.
+    QuadraticSigmoid, quadratic_sigmoid, "QuadraticSigmoid"
+}
+activation_type! {
+    /// Rectified linear unit.
+    ReLU, relu, "ReLU"
+}
+activation_type! {
+    /// Scaled exponential linear unit (SELU).
+    ScaledELU, scaled_elu, "ScaledELU"
+}
+activation_type! {
+    /// Softsign sigmoid with a steepened slope.
+    SoftSignSteep, softsign_steep, "SoftSignSteep"
+}
+activation_type! {
+    /// S-shaped rectified linear unit.
+    SReLU, srelu, "SReLU"
+}
+activation_type! {
+    /// SReLU shifted so that x=0 maps to y≈0.5.
+    SReLUShifted, srelu_shifted, "SReLUShifted"
+}
+activation_type! {
+    /// Hyperbolic tangent.
+    TanH, tanh, "TanH"
+}
+activation_type! {
+    /// CPPN sine with a doubled period.
+    Sine, sine, "Sine"
+}
+activation_type! {
+    /// CPPN gaussian, peak at x=0, tails tend to 0.
+    Gaussian, gaussian, "Gaussian"
+}

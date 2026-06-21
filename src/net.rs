@@ -3,6 +3,11 @@
 //! - [`NeuralNetAcyclic`] activates a depth-scheduled acyclic graph in a single forward sweep.
 //! - [`NeuralNetCyclic`] relaxes a cyclic graph for a fixed number of timesteps per activation.
 //!
+//! Both implementations are generic over `A: `[`Activation`](crate::activation::Activation). Use a
+//! concrete unit struct (e.g. [`Logistic`](crate::activation::Logistic)) for a monomorphised,
+//! inlined hot path, or the [`ActivationFn`](crate::activation::ActivationFn) enum for runtime
+//! dispatch when the function is read from a `.net` file.
+//!
 //! Both implementations mirror the vectorised activation loops in SharpNeat's
 //! `NeuralNets/Vectorized/NeuralNet{Acyclic,Cyclic}.cs`: connection signals are gathered into a
 //! SIMD vector, multiplied by a vector of weights, and scattered back onto the target nodes'

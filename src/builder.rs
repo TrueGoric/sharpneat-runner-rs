@@ -14,13 +14,19 @@ use crate::net::{NeuralNet, NeuralNetAcyclic, NeuralNetCyclic};
 
 /// A runnable network, either acyclic or cyclic.
 ///
+/// Both variants use [`ActivationFn`](crate::activation::ActivationFn) (runtime dispatch) because
+/// the function is selected from the `.net` file's string code at runtime. When the activation
+/// function is known at compile time, construct [`NeuralNetAcyclic`] / [`NeuralNetCyclic`]
+/// directly with a concrete [`Activation`](crate::activation::Activation) type for a monomorphised
+/// hot path.
+///
 /// Construct with [`build_from_model`] (or [`Net::from_model`]) from a [`NetFileModel`]. Both
 /// variants implement [`NeuralNet`]; this enum forwards through to the active variant so callers
 /// can work with a single concrete type.
 #[derive(Debug)]
 pub enum Net {
-    Acyclic(NeuralNetAcyclic),
-    Cyclic(NeuralNetCyclic),
+    Acyclic(NeuralNetAcyclic<ActivationFn>),
+    Cyclic(NeuralNetCyclic<ActivationFn>),
 }
 
 impl Net {

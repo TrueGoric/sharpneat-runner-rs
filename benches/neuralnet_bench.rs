@@ -2,6 +2,10 @@
 //!
 //! Builds networks of varying size from synthetic connection lists and times
 //! [`NeuralNet::activate`]. Zero-dependency harness, same approach as `activation_bench`.
+//!
+//! Each network size is benchmarked with both [`ActivationFn`] (runtime dispatch, as used by the
+//! `.net` file loader) and the concrete [`Logistic`] unit struct (monomorphised). Comparing the
+//! two confirms that the trait-based generic design introduces no performance regression.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -9,14 +13,22 @@ use std::time::{Duration, Instant};
 use sharpneat_runner_rs::graph::WeightedDirectedConnection;
 use sharpneat_runner_rs::graph::WeightedDirectedGraph;
 use sharpneat_runner_rs::graph::acyclic::build_weighted_directed_graph_acyclic;
-use sharpneat_runner_rs::{ActivationFn, NeuralNet, NeuralNetAcyclic, NeuralNetCyclic};
+use sharpneat_runner_rs::{
+    Activation, ActivationFn, Logistic, NeuralNet, NeuralNetAcyclic, NeuralNetCyclic,
+};
 
 const WARMUP: Duration = Duration::from_millis(200);
 const MEASURE: Duration = Duration::from_secs(2);
 
 /// Generate a layered acyclic network: `inputs` input nodes, `layers` hidden layers each of
 /// `width` nodes, fully connected between adjacent layers, feeding `outputs` output nodes.
-fn layered_acyclic(inputs: usize, outputs: usize, layers: usize, width: usize) -> NeuralNetAcyclic {
+fn layered_acyclic<A: Activation>(
+    inputs: usize,
+    outputs: usize,
+    layers: usize,
+    width: usize,
+    fn_: A,
+) -> NeuralNetAcyclic<A> {
     let mut conns = Vec::new();
     let mut prev_layer: Vec<usize> = (0..inputs).collect();
     let mut layer_start = inputs;
@@ -46,12 +58,17 @@ fn layered_acyclic(inputs: usize, outputs: usize, layers: usize, width: usize) -
     }
     let g = WeightedDirectedGraph::build(conns, inputs, outputs);
     let acyclic = build_weighted_directed_graph_acyclic(g);
-    NeuralNetAcyclic::new(acyclic, ActivationFn::Logistic)
+    NeuralNetAcyclic::new(acyclic, fn_)
 }
 
 /// Generate a cyclic network with `width` hidden nodes in a recurrent ring plus feed-forward
 /// connections from the inputs, matching the kind of topology SharpNeat evolves for cyclic nets.
-fn ring_cyclic(inputs: usize, outputs: usize, width: usize) -> NeuralNetCyclic {
+fn ring_cyclic<A: Activation>(
+    inputs: usize,
+    outputs: usize,
+    width: usize,
+    fn_: A,
+) -> NeuralNetCyclic<A> {
     let mut conns = Vec::new();
     let hidden: Vec<usize> = (inputs + outputs..inputs + outputs + width).collect();
     for s in 0..inputs {
@@ -82,7 +99,7 @@ fn ring_cyclic(inputs: usize, outputs: usize, width: usize) -> NeuralNetCyclic {
         }
     }
     let g = WeightedDirectedGraph::build(conns, inputs, outputs);
-    NeuralNetCyclic::new(g, ActivationFn::Logistic, 4)
+    NeuralNetCyclic::new(g, fn_, 4)
 }
 
 /// Time `activate` on a pre-built network whose inputs have already been set.
@@ -106,7 +123,7 @@ fn bench<N: NeuralNet>(name: &str, mut net: N) {
     }
     let elapsed = start.elapsed();
     let per_call_us = elapsed.as_nanos() as f64 / calls as f64 / 1000.0;
-    println!("{name:<42} {calls:>8} calls | {per_call_us:>10.3} us/activation");
+    println!("{name:<52} {calls:>8} calls | {per_call_us:>10.3} us/activation");
 }
 
 fn main() {
@@ -114,21 +131,57 @@ fn main() {
     println!();
 
     println!("-- acyclic, layered, fully connected --");
+    println!();
+    println!("  [runtime dispatch via ActivationFn enum]");
     bench(
         "acyclic 6->16->4 (1 hidden layer)",
-        layered_acyclic(6, 4, 1, 16),
+        layered_acyclic(6, 4, 1, 16, ActivationFn::Logistic),
     );
     bench(
         "acyclic 6->32x3->4 (3 hidden layers)",
-        layered_acyclic(6, 4, 3, 32),
+        layered_acyclic(6, 4, 3, 32, ActivationFn::Logistic),
     );
     bench(
         "acyclic 12->64x4->8 (4 hidden layers)",
-        layered_acyclic(12, 8, 4, 64),
+        layered_acyclic(12, 8, 4, 64, ActivationFn::Logistic),
+    );
+
+    println!();
+    println!("  [monomorphised via concrete Logistic unit struct]");
+    bench(
+        "acyclic 6->16->4 (1 hidden layer)",
+        layered_acyclic(6, 4, 1, 16, Logistic),
+    );
+    bench(
+        "acyclic 6->32x3->4 (3 hidden layers)",
+        layered_acyclic(6, 4, 3, 32, Logistic),
+    );
+    bench(
+        "acyclic 12->64x4->8 (4 hidden layers)",
+        layered_acyclic(12, 8, 4, 64, Logistic),
     );
 
     println!();
     println!("-- cyclic, recurrent ring, 4 cycles/activation --");
-    bench("cyclic 6->ring16->4 (4 cycles)", ring_cyclic(6, 4, 16));
-    bench("cyclic 12->ring64->8 (4 cycles)", ring_cyclic(12, 8, 64));
+    println!();
+    println!("  [runtime dispatch via ActivationFn enum]");
+    bench(
+        "cyclic 6->ring16->4 (4 cycles)",
+        ring_cyclic(6, 4, 16, ActivationFn::Logistic),
+    );
+    bench(
+        "cyclic 12->ring64->8 (4 cycles)",
+        ring_cyclic(12, 8, 64, ActivationFn::Logistic),
+    );
+
+    println!();
+    println!("  [monomorphised via concrete Logistic unit struct]");
+    bench(
+        "cyclic 6->ring16->4 (4 cycles)",
+        ring_cyclic(6, 4, 16, Logistic),
+    );
+    bench(
+        "cyclic 12->ring64->8 (4 cycles)",
+        ring_cyclic(12, 8, 64, Logistic),
+    );
 }
