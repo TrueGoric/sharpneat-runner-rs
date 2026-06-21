@@ -177,4 +177,4 @@ data). Run a single test with `cargo test <name>`.
 
 ## License
 
-MIT, matching SharpNeat.
+MIT
