@@ -198,7 +198,7 @@ pub fn build_weighted_directed_graph_acyclic(
         .collect();
 
     // 6. Build the LayerInfo array by scanning nodes and connections in depth order.
-    let layer_array = build_layer_array(&node_depth, &src_ids, graph_depth, total, input_count);
+    let layer_array = build_layer_array(&node_depth, &src_ids, graph_depth, total);
 
     let acyclic = DirectedGraphAcyclic {
         input_count,
@@ -263,7 +263,6 @@ fn build_layer_array(
     src_ids: &[usize],
     graph_depth: usize,
     total: usize,
-    input_count: usize,
 ) -> Vec<LayerInfo> {
     let mut layers = Vec::with_capacity(graph_depth);
     let mut node_idx = 0usize;
@@ -282,9 +281,12 @@ fn build_layer_array(
             end_connection_idx: conn_idx,
         });
     }
-    // The first layer is the input layer; the scan above starts at node 0, which is correct because
-    // input nodes occupy [0, input_count) at depth 0.
-    debug_assert_eq!(layers[0].end_node_idx, input_count);
+    // Layer 0 (depth 0) holds the input nodes plus any non-input nodes that were not reached by
+    // the depth analysis — either because they have no incoming path from an input, or because they
+    // are phantom IDs (referenced nowhere but covered by `total_node_count`). These extra nodes
+    // keep pre-activation 0.0 and, being in the same layer as the inputs, are never activated before
+    // their (possibly empty) outgoing connections are processed; this matches SharpNeat's behaviour,
+    // where unreachable nodes contribute zero to downstream targets.
     layers
 }
 
@@ -453,5 +455,80 @@ mod tests {
         original.sort_by(|a, b| a.total_cmp(b));
         rebuilt.sort_by(|a, b| a.total_cmp(b));
         assert_eq!(original, rebuilt);
+    }
+
+    #[test]
+    fn layer_zero_includes_unreachable_and_phantom_nodes() {
+        // A graph whose max referenced ID (100) is much larger than input_count + output_count,
+        // creating many phantom IDs in [0, 100) that are never referenced by any connection but
+        // are covered by `total_node_count`. Node 5 has an outgoing edge but no incoming path from
+        // any input, so it is unreachable and stays at depth 0. Both the phantom IDs and node 5
+        // end up in layer 0 alongside the inputs.
+        //
+        // inputs {0,1,2}, output {3}, unreachable hidden {5}, reachable hidden {100}.
+        // 0 -> 3 (w=1.0); 5 -> 3 (w=2.0); 0 -> 100 (w=0.5).
+        let conns = vec![
+            WeightedDirectedConnection {
+                src_id: 0,
+                tgt_id: 3,
+                weight: 1.0,
+            },
+            WeightedDirectedConnection {
+                src_id: 5,
+                tgt_id: 3,
+                weight: 2.0,
+            },
+            WeightedDirectedConnection {
+                src_id: 0,
+                tgt_id: 100,
+                weight: 0.5,
+            },
+        ];
+        let g = WeightedDirectedGraph::build(conns, 3, 1);
+        // total_node_count = max(3+1, 101) = 101 (the edge to node 100 inflates it).
+        assert_eq!(g.digraph.total_node_count, 101);
+        let acyclic = build_weighted_directed_graph_acyclic(g);
+        // Layer 0 contains the 3 inputs plus all unreachable/phantom non-input nodes (IDs 4..99
+        // and node 5), so it is much larger than `input_count`.
+        assert!(
+            acyclic.digraph.layer_array[0].end_node_idx > 3,
+            "layer 0 should contain unreachable + phantom nodes, got end_node_idx = {}",
+            acyclic.digraph.layer_array[0].end_node_idx
+        );
+        // The build must not panic and the output index must be valid.
+        assert_eq!(acyclic.digraph.output_node_idx_arr.len(), 1);
+    }
+
+    #[test]
+    fn unreachable_node_contributes_zero_to_acyclic_output() {
+        // 0 -> 3 (w=1), 5 -> 3 (w=2). Node 5 is unreachable (no incoming edges).
+        // With input 0 = 5.0: output = LeakyReLU(5*1 + 0*2) = 5.0 (node 5 contributes 0).
+        use crate::activation::ActivationFn;
+        use crate::net::NeuralNet;
+        use crate::net::NeuralNetAcyclic;
+
+        let conns = vec![
+            WeightedDirectedConnection {
+                src_id: 0,
+                tgt_id: 3,
+                weight: 1.0,
+            },
+            WeightedDirectedConnection {
+                src_id: 5,
+                tgt_id: 3,
+                weight: 2.0,
+            },
+        ];
+        let g = WeightedDirectedGraph::build(conns, 3, 1);
+        let acyclic = build_weighted_directed_graph_acyclic(g);
+        let mut net = NeuralNetAcyclic::new(acyclic, ActivationFn::LeakyReLU);
+        net.inputs_mut().copy_from_slice(&[5.0, 0.0, 0.0]);
+        net.activate();
+        // Unreachable node 5 has post-activation 0.0; its weight-2 edge adds 0.0.
+        assert!(
+            (net.outputs()[0] - 5.0).abs() <= 1e-12,
+            "got {}",
+            net.outputs()[0]
+        );
     }
 }

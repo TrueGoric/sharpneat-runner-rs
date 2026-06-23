@@ -18,6 +18,12 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
+fn sample(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("sample_genomes")
+        .join(name)
+}
+
 #[test]
 fn loads_example1_net() {
     let model = NetFile::load(fixture("example1.net")).unwrap();
@@ -156,4 +162,176 @@ fn activation_fn_from_code_covers_fixture_codes() {
     for code in ["ReLU", "Logistic", "Sine", "Gaussian"] {
         assert!(ActivationFn::from_code(code).is_some(), "missing {code}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// sample_genomes/cf-acyclic.net — a large acyclic genome (87 inputs, 7 outputs,
+// LeakyReLU).  The graph has a high max node ID (~20 k) with many unreachable
+// and phantom nodes, which exercise the depth-analysis and layer-scheduling
+// code paths that the small fixtures do not.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn loads_cf_acyclic_net() {
+    let model = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    assert_eq!(model.input_count, 87);
+    assert_eq!(model.output_count, 7);
+    assert!(model.is_acyclic);
+    assert_eq!(model.connections.len(), 1439);
+    assert_eq!(model.activation_fns.len(), 1);
+    assert_eq!(model.activation_fns[0].code, "LeakyReLU");
+}
+
+#[test]
+fn cf_acyclic_builds_to_acyclic_variant() {
+    let model = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    let net = Net::from_model(&model).unwrap();
+    assert!(matches!(net, Net::Acyclic(_)));
+    assert_eq!(net.input_count(), 87);
+    assert_eq!(net.output_count(), 7);
+}
+
+#[test]
+fn cf_acyclic_zero_inputs_give_zero_outputs() {
+    // LeakyReLU(0) = 0, so with all-zero inputs every node settles to 0.
+    let model = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    net.inputs_mut().fill(0.0);
+    net.activate();
+    assert_eq!(net.outputs(), &[0.0; 7]);
+}
+
+#[test]
+fn cf_acyclic_produces_finite_outputs_with_unit_inputs() {
+    let model = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    net.inputs_mut().fill(1.0);
+    net.activate();
+    assert_eq!(net.outputs().len(), 7);
+    for (i, &o) in net.outputs().iter().enumerate() {
+        assert!(o.is_finite(), "output[{i}] is not finite: {o}");
+    }
+}
+
+#[test]
+fn cf_acyclic_activation_is_deterministic() {
+    let model = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    let inputs: Vec<f64> = (0..87).map(|i| (i as f64) * 0.01 - 0.43).collect();
+
+    net.inputs_mut().copy_from_slice(&inputs);
+    net.activate();
+    let first = net.outputs().to_vec();
+
+    // Re-run with the same inputs; acyclic nets have no persistent state.
+    net.inputs_mut().copy_from_slice(&inputs);
+    net.activate();
+    let second = net.outputs().to_vec();
+
+    for (i, (a, b)) in first.iter().zip(&second).enumerate() {
+        assert!((a - b).abs() <= 1e-12, "output[{i}] differs: {a} vs {b}");
+    }
+}
+
+#[test]
+fn cf_acyclic_round_trips_through_string() {
+    let original = NetFile::load(sample("cf-acyclic.net")).unwrap();
+    let text = NetFile::write_to_string(&original);
+    let reparsed = NetFile::read_from_str(&text).unwrap();
+    assert_eq!(reparsed.input_count, original.input_count);
+    assert_eq!(reparsed.output_count, original.output_count);
+    assert_eq!(reparsed.is_acyclic, original.is_acyclic);
+    assert_eq!(reparsed.connections, original.connections);
+    assert_eq!(reparsed.activation_fns, original.activation_fns);
+}
+
+// ---------------------------------------------------------------------------
+// sample_genomes/cf-cyclic.net — the cyclic counterpart (87 inputs, 7 outputs,
+// 4 cycles per activation, LeakyReLU).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn loads_cf_cyclic_net() {
+    let model = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    assert_eq!(model.input_count, 87);
+    assert_eq!(model.output_count, 7);
+    assert!(!model.is_acyclic);
+    assert_eq!(model.cycles_per_activation, 4);
+    assert_eq!(model.connections.len(), 1472);
+    assert_eq!(model.activation_fns.len(), 1);
+    assert_eq!(model.activation_fns[0].code, "LeakyReLU");
+}
+
+#[test]
+fn cf_cyclic_builds_to_cyclic_variant() {
+    let model = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    let net = Net::from_model(&model).unwrap();
+    assert!(matches!(net, Net::Cyclic(_)));
+    assert_eq!(net.input_count(), 87);
+    assert_eq!(net.output_count(), 7);
+}
+
+#[test]
+fn cf_cyclic_zero_inputs_give_zero_outputs() {
+    let model = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    net.reset();
+    net.inputs_mut().fill(0.0);
+    net.activate();
+    assert_eq!(net.outputs(), &[0.0; 7]);
+}
+
+#[test]
+fn cf_cyclic_produces_finite_outputs_with_unit_inputs() {
+    let model = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    net.reset();
+    net.inputs_mut().fill(1.0);
+    net.activate();
+    assert_eq!(net.outputs().len(), 7);
+    for (i, &o) in net.outputs().iter().enumerate() {
+        assert!(o.is_finite(), "output[{i}] is not finite: {o}");
+    }
+}
+
+#[test]
+fn cf_cyclic_activation_is_deterministic_after_reset() {
+    let model = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    let mut net = Net::from_model(&model).unwrap();
+    let inputs: Vec<f64> = (0..87).map(|i| (i as f64) * 0.01 - 0.43).collect();
+
+    net.reset();
+    net.inputs_mut().copy_from_slice(&inputs);
+    net.activate();
+    let first = net.outputs().to_vec();
+
+    net.reset();
+    net.inputs_mut().copy_from_slice(&inputs);
+    net.activate();
+    let second = net.outputs().to_vec();
+
+    for (i, (a, b)) in first.iter().zip(&second).enumerate() {
+        assert!((a - b).abs() <= 1e-12, "output[{i}] differs: {a} vs {b}");
+    }
+}
+
+#[test]
+fn cf_cyclic_round_trips_through_string() {
+    let original = NetFile::load(sample("cf-cyclic.net")).unwrap();
+    let text = NetFile::write_to_string(&original);
+    let reparsed = NetFile::read_from_str(&text).unwrap();
+    assert_eq!(reparsed.input_count, original.input_count);
+    assert_eq!(reparsed.output_count, original.output_count);
+    assert_eq!(reparsed.is_acyclic, original.is_acyclic);
+    assert_eq!(
+        reparsed.cycles_per_activation,
+        original.cycles_per_activation
+    );
+    assert_eq!(reparsed.connections, original.connections);
+    assert_eq!(reparsed.activation_fns, original.activation_fns);
+}
+
+#[test]
+fn cf_genomes_resolve_leaky_relu_activation_code() {
+    assert!(ActivationFn::from_code("LeakyReLU").is_some());
 }
